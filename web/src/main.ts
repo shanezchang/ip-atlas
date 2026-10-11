@@ -81,6 +81,7 @@ let dark = savedTheme
 let active: Result | undefined;
 let history: Result[] = [];
 let request: AbortController | undefined;
+let inputRevision = 0;
 let busy = false;
 let copyTimer: ReturnType<typeof setTimeout> | undefined;
 const text = {
@@ -251,6 +252,8 @@ const rangePanel = new RangePanel(
   },
   (ip) => {
     showMode("lookup");
+    $<HTMLInputElement>("ip-input").value = ip;
+    $("ip-input").focus();
     void query(ip);
   },
   toast,
@@ -341,9 +344,9 @@ function renderHistory() {
           select(history[Number(button.dataset.history)])),
     );
 }
-function select(r: Result) {
+function select(r: Result, updateInput = true) {
   active = r;
-  $<HTMLInputElement>("ip-input").value = r.ip;
+  if (updateInput) $<HTMLInputElement>("ip-input").value = r.ip;
   renderResult();
   renderHistory();
   mapView?.update(history, r);
@@ -371,6 +374,11 @@ function setBusy(value: boolean) {
   $("status").textContent = value ? t().querying : "";
 }
 async function query(value: string, own = false) {
+  const input = $<HTMLInputElement>("ip-input");
+  const draft = input.value;
+  const revision = inputRevision;
+  const isCurrentDraft = () =>
+    inputRevision === revision && input.value === draft;
   request?.abort();
   const controller = new AbortController();
   request = controller;
@@ -392,11 +400,10 @@ async function query(value: string, own = false) {
     });
     if (controller !== request) return;
     if (!response.ok) {
-      showError(
-        response.status === 400 || response.status === 422
-          ? t().invalid
-          : t().network,
-      );
+      const invalid = response.status === 400 || response.status === 422;
+      // Validation belongs to the submitted draft, not a subsequent edit.
+      if (!invalid || isCurrentDraft())
+        showError(invalid ? t().invalid : t().network);
       return;
     }
     const result: Result = await response.json();
@@ -406,7 +413,7 @@ async function query(value: string, own = false) {
       8,
     );
     saveHistory();
-    select(result);
+    select(result, isCurrentDraft());
     $("status").textContent =
       `${t().result}: ${result.ip}, ${placeTitle(result)}`;
   } catch {
@@ -422,8 +429,10 @@ async function query(value: string, own = false) {
 function showError(message: string) {
   $("error").textContent = message;
   $("error").hidden = false;
-  if (message === t().invalid)
+  if (message === t().invalid) {
     $("ip-input").setAttribute("aria-invalid", "true");
+    $("ip-input").focus();
+  }
 }
 function renderLanguage() {
   document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
@@ -500,6 +509,9 @@ function applyTheme() {
   $("theme").innerHTML = icon(dark ? "Sun" : "Moon");
   mapView?.theme(dark);
 }
+$("ip-input").oninput = () => {
+  inputRevision++;
+};
 $("query-form").onsubmit = (event) => {
   event.preventDefault();
   void query($<HTMLInputElement>("ip-input").value);

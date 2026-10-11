@@ -48,7 +48,8 @@ def test_non_public_never_gets_pin(ip):
 
 
 @pytest.mark.parametrize(
-    "ip", ["example.com", "999.1.1.1", "<script>", "fe80::1%en0", "1.2.3.4/24"]
+    "ip",
+    ["example.com", "999.1.1.1", "<script>", "fe80::1%en0", "1.2.3.4/24", "2001:::1", "   "],
 )
 def test_invalid_addresses(ip):
     assert client.post("/api/lookup", json={"ip": ip}).status_code == 400
@@ -57,7 +58,30 @@ def test_invalid_addresses(ip):
 def test_validation_and_mapped_ip():
     assert client.post("/api/lookup", json={"ip": "a" * 1000}).status_code == 422
     assert client.post("/api/lookup", json={}).status_code == 422
+    assert client.post("/api/lookup", json={"ip": ""}).status_code == 422
     assert lookup("::ffff:114.114.114.114")["ip"] == "114.114.114.114"
+
+
+def test_unavailable_data_is_an_explicit_retryable_error(monkeypatch):
+    import sqlite3
+
+    import app as api
+
+    def failed_lookup(_ip):
+        raise OSError("Synthetic unavailable lookup data")
+
+    def failed_ranges(*_args):
+        raise sqlite3.OperationalError("Synthetic unavailable reverse index")
+
+    monkeypatch.setattr(api, "lookup", failed_lookup)
+    monkeypatch.setattr(api, "list_ranges", failed_ranges)
+    responses = [
+        client.post("/api/lookup", json={"ip": "8.8.8.8"}),
+        client.get("/api/ranges?area=country:US&version=4"),
+    ]
+    for response in responses:
+        assert response.status_code == 503
+        assert response.json() == {"detail": "data_unavailable"}
 
 
 def test_untrusted_forward_header_is_ignored(monkeypatch):

@@ -55,10 +55,13 @@ One Vercel project: static frontend on the CDN, FastAPI as a Python Function. XD
 ## Checks
 
 ```sh
-uv run pytest
-uv run ruff check .
+uv run --locked pytest
+uv run --locked ruff check .
+npm test
+npm run lint
+npm run typecheck
 npm run build
-npx playwright install chromium
+npx --no-install playwright install chromium
 npm run test:e2e
 ```
 

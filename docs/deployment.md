@@ -12,9 +12,16 @@ Use Vercel's platform protection and usage monitoring if traffic grows. Applicat
 
 ## Maintainer workflow
 
-Verify the linked project with `vercel project inspect --non-interactive`. Deploy with `vercel deploy --prod --skip-domain`, check via `vercel curl --deployment <url>`, then `vercel promote <url>` after successful checks. Never reuse another project's `.vercel/` directory.
+Normal releases use GitHub → CI → Vercel. Keep the existing workflow **Checks**, job/check-run **`check`**: cloud gates refer to that exact name. As configured and read back by the maintainer on 2026-10-11:
 
-A first deployment may receive the production alias automatically. Test it immediately; for subsequent updates keep the old production deployment in place until verification passes.
+- GitHub `main` requires `check`, an up-to-date branch (`strict`) and administrator enforcement. Changes go through a PR; the required approving-review count is 0, so independent review remains a maintainer responsibility rather than an enforced approval count.
+- Vercel requires the GitHub external check `check` for the same source SHA before `deployment-alias` on the `production` target, with a 3600-second timeout. Automatic aliasing remains enabled but waits for the check.
+
+A 2026-10-11 negative control (unchanged application blobs, deliberately failed `check`) blocked GitHub merging and left the ready production candidate unaliased; all existing production aliases stayed on the previous deployment. However, Vercel's native check remained `running`, not a resolved failure. This proves the observed hold, not complete result propagation. The first normal GitHub `main` release must verify the success path for the exact SHA, including check resolution and alias assignment. Retain the old deployment until that verification passes; do not force-promote to bypass a failed or unresolved check.
+
+Verify the linked project with `vercel project inspect --non-interactive`; never reuse another project's `.vercel/` directory. A separately authorized manual release can use `vercel deploy --prod --skip-domain`, validate the immutable deployment with `vercel curl --deployment <url>`, and only then promote. This is an exception, not an alternative to required checks.
+
+For rollback, retain the previous production deployment ID and restore its alias using the platform's supported rollback path, then read back the alias and repeat IP lookup and range-pagination smoke tests. No data migration is involved in the label/focus refinement. A first deployment can receive its alias automatically; verify it immediately.
 
 ## This deployment
 

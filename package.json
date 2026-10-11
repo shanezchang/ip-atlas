@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "prettier --check web/src tests/browser tests/unit playwright.config.ts vite.config.ts tsconfig.json package.json .github/workflows/check.yml",
+    "test": "node --experimental-strip-types --test tests/unit/*.test.mjs",
     "test:e2e": "playwright test"
   },
   "engines": {
