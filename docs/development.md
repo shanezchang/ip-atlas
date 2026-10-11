@@ -31,7 +31,11 @@ Python dependencies are locked with uv; JavaScript dependencies with npm. There 
 
 ## Verification
 
-`uv run pytest` checks real IPv4 / IPv6 queries, fallback precision, non-public IPs, invalid input, forwarded-header trust and concurrency. `npm run test:e2e` starts local servers as needed and checks query/map synchronization, error recovery, themes, languages, dialog focus and mobile widths. `BASE_URL=https://... npm run test:e2e` checks a deployed site.
+`uv run --locked pytest` checks the real bundled IPv4 / IPv6 data, reference-point precision, non-public and invalid inputs, failure responses, forwarded-header trust, concurrency, exact CIDRs and server-only data boundaries. `uv run --locked ruff check .` is the Python lint gate. `npm test` executes the real TypeScript analytics filters with Node's built-in test runner (no SDK injection or network); `npm run lint` checks the existing Prettier style; `npm run typecheck` covers application and browser-test TypeScript.
+
+`npm run test:e2e` builds the production frontend and starts an isolated FastAPI server on port 8019; stop any existing process on that port first. It does not reuse an unrelated server or test only Vite's dev output. `BASE_URL=http://127.0.0.1:<port> npm run test:e2e` uses an explicitly managed local build instead. Browser requests are allowlisted to that origin's static resources and read-only lookup APIs; external services, collectors and other writes are blocked. Never remove that guard to manufacture production analytics.
+
+The browser suite covers the existing country/state → pagination → IPv6 CIDR clipboard → first-IP lookup journey, English/Chinese, light/dark, keyboard focus, network/503/catalog retries, actual empty ranges, explicit no-record/clipboard-denial fixtures, map failure and 320/390/1440px layouts. Map-label tests measure rendered text bounds after fonts load, translation, zoom, pan and resize rather than merely checking page overflow. Synthetic fixtures verify recovery UI, not live data attribution. Missing data fields remain honest; no paid providers or client-IP discovery services are used.
 
 ## Updating data
 

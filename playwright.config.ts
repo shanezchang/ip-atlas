@@ -4,7 +4,7 @@ export default defineConfig({
   timeout: 30000,
   fullyParallel: true,
   use: {
-    baseURL: process.env.BASE_URL || "http://127.0.0.1:5179",
+    baseURL: process.env.BASE_URL || "http://127.0.0.1:8019",
     browserName: "chromium",
     reducedMotion: "reduce",
     launchOptions: {
@@ -20,16 +20,10 @@ export default defineConfig({
   },
   webServer: process.env.BASE_URL
     ? undefined
-    : [
-        {
-          command: "uv run uvicorn app:app --host 127.0.0.1 --port 8019",
-          url: "http://127.0.0.1:8019/api/health",
-          reuseExistingServer: !process.env.CI,
-        },
-        {
-          command: "npm run dev",
-          url: "http://127.0.0.1:5179",
-          reuseExistingServer: !process.env.CI,
-        },
-      ],
+    : {
+        command:
+          "npm run build && uv run --locked uvicorn app:app --host 127.0.0.1 --port 8019 --no-access-log",
+        url: "http://127.0.0.1:8019/api/health",
+        reuseExistingServer: false,
+      },
 });

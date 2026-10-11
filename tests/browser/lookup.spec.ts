@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 // Exercise Chinese workflows explicitly; first-visit English is tested separately.
 test.beforeEach(async ({ page }) => {
@@ -59,6 +59,11 @@ test("invalid and non-public IPs remain understandable", async ({ page }) => {
   await page.locator("#ip-input").fill("not-an-ip");
   await page.getByRole("button", { name: "查询", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("有效");
+  await expect(page.locator("#ip-input")).toBeFocused();
+  await page.locator("#ip-input").fill("2001:::1");
+  await page.getByRole("button", { name: "查询", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("有效");
+  await expect(page.locator("#ip-input")).toBeFocused();
   await page.locator("#ip-input").fill("192.168.1.1");
   await page.getByRole("button", { name: "查询", exact: true }).click();
   await expect(page.locator(".place-title")).toHaveText("非公网地址");
@@ -79,6 +84,68 @@ test("network errors recover and history survives reload only within session", a
   await page.reload();
   await expect(page.locator(".history-item")).toHaveCount(1);
   await page.locator(".history-item").click();
+  await expect(page.locator(".place-title")).toHaveText("南京市");
+});
+
+test("empty input is local and a server error can be retried", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/lookup")) requests.push(r.url());
+  });
+  await page.goto("/");
+  await page.locator("#submit").click();
+  await expect(page.getByRole("alert")).toContainText("有效");
+  await expect(page.locator("#ip-input")).toBeFocused();
+  expect(requests).toEqual([]);
+  await page.route("**/api/lookup", (route) =>
+    route.fulfill({ status: 503, json: { detail: "data_unavailable" } }),
+  );
+  await page.locator("#ip-input").fill("8.8.8.8");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alert")).toContainText("暂时失败");
+  await expect(page.locator("#submit")).toBeEnabled();
+  await page.unroute("**/api/lookup");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".result-ip")).toHaveText("8.8.8.8");
+  await expect(page.getByRole("alert")).toBeHidden();
+});
+
+test("explicit no-record fixture never leaves a stale geographic pin", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "南京", exact: false }).click();
+  await expect(page.locator(".map-pin.selected")).toBeVisible();
+  // Isolate a missing database record; do not claim this is live attribution.
+  await page.route("**/api/lookup", async (route) => {
+    const response = await route.fetch();
+    const actual = await response.json();
+    await route.fulfill({
+      json: {
+        ...actual,
+        scope: "unmapped",
+        location: null,
+        country: "",
+        region: "",
+        city: "",
+        isp: "",
+      },
+    });
+  });
+  await page.locator("#submit").click();
+  await expect(page.locator(".place-title")).toHaveText("暂无归属地");
+  await expect(page.locator(".map-pin")).toHaveCount(0);
+  await page.getByRole("button", { name: "Switch to English" }).click();
+  await expect(page.locator(".place-title")).toHaveText("No location found");
+});
+
+test("map asset failure leaves real IP lookup available", async ({ page }) => {
+  await page.route("**/world.geojson", (route) => route.abort());
+  await page.goto("/");
+  await expect(page.locator("#map-loading")).toContainText("仍可查询 IP");
+  await page.getByRole("button", { name: "南京", exact: false }).click();
   await expect(page.locator(".place-title")).toHaveText("南京市");
 });
 

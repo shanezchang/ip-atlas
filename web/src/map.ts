@@ -203,6 +203,10 @@ export class PlotipMap {
             .addTo(this.map!);
           this.labels.push({ marker, zh, en, rank: p.rank });
         }
+        this.labels.sort(
+          (a, b) => a.rank - b.rank || a.en.localeCompare(b.en, "en"),
+        );
+        void document.fonts.ready.then(() => this.updateLabels());
         this.theme(this.dark);
         this.updateLabels();
         this.render();
@@ -211,7 +215,9 @@ export class PlotipMap {
         document.getElementById("map-loading")!.hidden = true;
         document.getElementById("map")!.dataset.ready = "true";
       });
-      this.map.on("zoom", () => this.updateLabels());
+      // DOM markers do not participate in MapLibre symbol collision placement.
+      // Render follows camera/marker updates, including pan, zoom and resize.
+      this.map.on("render", () => this.updateLabels());
       this.map.on("resize", () => {
         if (this.area) this.focusArea(this.area);
         else if (this.active?.location) this.focus(this.active);
@@ -309,11 +315,38 @@ export class PlotipMap {
         : "Map unavailable. IP lookup still works.";
   }
   private updateLabels() {
-    const z = this.map?.getZoom() ?? 1;
-    this.labels.forEach((x) => {
-      x.marker.getElement().style.display =
-        x.rank <= (z < 1.7 ? 2 : z < 2.5 ? 3 : 5) ? "" : "none";
+    if (!this.ready || !this.map) return;
+    const z = this.map.getZoom();
+    const viewport = this.map.getContainer().getBoundingClientRect();
+    const gap = 8;
+    const overlaps = (a: DOMRect, b: DOMRect) =>
+      a.left < b.right + gap &&
+      a.right + gap > b.left &&
+      a.top < b.bottom + gap &&
+      a.bottom + gap > b.top;
+    const occupied = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        ".rail, .map-heading, .map-controls, .map-footer, .map-pin, .pin-label",
+      ),
+      (el) => el.getBoundingClientRect(),
+    ).filter((r) => r.width && r.height);
+    // Read all text bounds before writing visibility. Hidden labels retain their
+    // dimensions so a pan, translation or font load can make them visible again.
+    const placements = this.labels.map(({ marker, rank }) => {
+      const element = marker.getElement();
+      const box = element.getBoundingClientRect();
+      const visible =
+        rank <= (z < 1.7 ? 2 : z < 2.5 ? 3 : 5) &&
+        box.left >= viewport.left + gap &&
+        box.right <= viewport.right - gap &&
+        box.top >= viewport.top + gap &&
+        box.bottom <= viewport.bottom - gap &&
+        !occupied.some((r) => overlaps(box, r));
+      if (visible) occupied.push(box);
+      return { element, visible };
     });
+    for (const { element, visible } of placements)
+      element.style.visibility = visible ? "visible" : "hidden";
   }
   language(lang: Lang) {
     this.lang = lang;
@@ -321,6 +354,7 @@ export class PlotipMap {
       (x) => (x.marker.getElement().textContent = lang === "zh" ? x.zh : x.en),
     );
     this.render();
+    this.updateLabels();
   }
   theme(dark: boolean) {
     this.dark = dark;

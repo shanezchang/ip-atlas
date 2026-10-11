@@ -23,6 +23,7 @@ The previous green full-height rail felt generic and repeated too much informati
 - A regional lookup highlights that region, uses its extent for framing, and places a reference marker inside its main polygon. It does not claim device coordinates.
 - Canonical administrative names outrank translated names and aliases. Ties are unresolved rather than overwritten by file order. Washington state and District of Columbia have separate mappings.
 - The session-history key is versioned to discard cached coordinates from before the correction.
+- Country names are DOM markers, not MapLibre symbol layers. At each rendered view, keep the existing zoom/rank hierarchy, then place higher-priority labels first using their rendered text bounds. Leave an 8px gap from other labels, map edges, the floating panel, controls and pins; omit a whole label rather than showing a clipped fragment. Re-evaluate after language/font changes as well as camera movement. Do not shrink the type or move a geographic anchor to fit a name.
 
 ## Reverse lookup
 

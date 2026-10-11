@@ -1,4 +1,25 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
+
+test("browser QA blocks collector writes before transport", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const failed = page.waitForEvent("requestfailed", (request) =>
+    request.url().endsWith("/qa-collector"),
+  );
+  const outcome = await page.evaluate(async () => {
+    try {
+      await fetch("/qa-collector", { method: "POST", body: "synthetic-qa" });
+      return "sent";
+    } catch {
+      return "blocked";
+    }
+  });
+  expect(outcome).toBe("blocked");
+  expect((await failed).failure()?.errorText).toContain(
+    "ERR_BLOCKED_BY_CLIENT",
+  );
+});
 
 test("new visitors see English and language choices persist", async ({
   page,

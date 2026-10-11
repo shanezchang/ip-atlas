@@ -10,5 +10,5 @@
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["web/src", "vite.config.ts"]
+  "include": ["web/src", "tests/browser", "vite.config.ts"]
 }
