@@ -23,6 +23,7 @@ import {
 import type { PlotipMap } from "./map";
 import type { Area, Lang, Result } from "./types";
 import { RangePanel } from "./ranges";
+import { prepareMapResources } from "./map-resources";
 
 const icons = {
   Search,
@@ -570,8 +571,9 @@ document.addEventListener("keydown", (e) => {
 renderLanguage();
 applyTheme();
 mapView?.update(history, undefined, false);
-void import("./map")
-  .then(({ PlotipMap }) => {
+const mapResources = prepareMapResources();
+void Promise.all([import("./map"), mapResources.ready])
+  .then(([{ PlotipMap }, resources]) => {
     mapView = new PlotipMap(
       (r) => {
         showMode("lookup");
@@ -591,9 +593,10 @@ void import("./map")
       mapView.setLevel(selectedArea.level);
       mapView.selectArea(selectedArea);
     }
-    return mapView.init(dark);
+    return mapView.init(dark, resources);
   })
   .catch(() => {
+    mapResources.dispose();
     $("map-loading").textContent =
       lang === "zh"
         ? "地图暂时无法显示，仍可查询 IP。"

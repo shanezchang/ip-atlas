@@ -2,8 +2,9 @@ import * as maplibregl from "maplibre-gl";
 import type { StyleSpecification } from "maplibre-gl";
 import type { FeatureCollection, LineString } from "geojson";
 import type { Area, Result, Lang } from "./types";
+import type { MapResources } from "./map-resources";
+import { assertMapCollection } from "./map-resources";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-maplibregl.setWorkerUrl(workerUrl);
 
 const grid: FeatureCollection<LineString> = {
   type: "FeatureCollection",
@@ -52,17 +53,58 @@ export class PlotipMap {
     private onArea: (area: Area) => void,
     private onOcean: () => void,
   ) {}
-  async init(dark: boolean) {
+  init(dark: boolean, resources: MapResources) {
     this.dark = dark;
+    const { world, regionsUrl } = resources;
+    let preparedWorkerUrl: string | undefined;
+    const dispose = () => {
+      resources.dispose();
+      if (preparedWorkerUrl) {
+        URL.revokeObjectURL(preparedWorkerUrl);
+        preparedWorkerUrl = undefined;
+      }
+    };
+    let failed = false;
+    let initialized = false;
+    const fail = () => {
+      failed = true;
+      dispose();
+      if (!initialized) {
+        this.ready = false;
+        this.map?.remove();
+        this.map = undefined;
+        this.labels = [];
+        this.markers = [];
+      }
+      this.failure();
+    };
     try {
-      const response = await fetch("/world.geojson");
-      if (!response.ok) throw new Error("Map unavailable");
-      const world = await response.json();
+      // An empty collection is structurally valid, but cannot initialize a map.
+      if (world.features.length === 0) throw new Error("Map unavailable");
+      // MapLibre otherwise proxies blob: GeoJSON back to the main thread.
+      // Register the reader in its existing worker, before queued messages run.
+      // This is a module wrapper, not a second worker or a second HTTP download.
+      preparedWorkerUrl = URL.createObjectURL(
+        new Blob(
+          [
+            `import ${JSON.stringify(new URL(workerUrl, location.href).href)};
+        self.addProtocol("plotip-blob", async (params, controller) => {
+          const response = await fetch(params.url.slice("plotip-blob://".length), { signal: controller.signal });
+          if (!response.ok) throw new Error("Map unavailable");
+          const data = await response.json();
+          (${assertMapCollection.toString()})(data, "regions");
+          return { data };
+        });`,
+          ],
+          { type: "text/javascript" },
+        ),
+      );
+      maplibregl.setWorkerUrl(preparedWorkerUrl);
       const style: StyleSpecification = {
         version: 8,
         transition: { duration: 0, delay: 0 },
         sources: {
-          regions: { type: "geojson", data: "/regions.geojson" },
+          regions: { type: "geojson", data: `plotip-blob://${regionsUrl}` },
           world: { type: "geojson", data: world },
           grid: { type: "geojson", data: grid },
           active: {
@@ -181,39 +223,50 @@ export class PlotipMap {
       this.map.touchZoomRotate.disableRotation();
       this.map.setPadding(this.padding());
       this.map.on("load", () => {
-        this.ready = true;
-        for (const f of world.features) {
-          const p = f.properties;
-          if (p.rank > 5 || p.code === "AQ") continue;
-          const zh =
-            p.code?.length === 2
-              ? new Intl.DisplayNames(["zh"], { type: "region" }).of(p.code) ||
-                p.zh
-              : p.zh;
-          const en =
-            p.code?.length === 2
-              ? new Intl.DisplayNames(["en"], { type: "region" }).of(p.code) ||
-                p.name
-              : p.name;
-          const label = document.createElement("span");
-          label.className = "country-label";
-          label.textContent = this.lang === "zh" ? zh : en;
-          const marker = new maplibregl.Marker({ element: label })
-            .setLngLat([p.lon, p.lat])
-            .addTo(this.map!);
-          this.labels.push({ marker, zh, en, rank: p.rank });
+        // A failed source may still let MapLibre emit load. Never report that
+        // partial map as ready, or keep the failed map alive.
+        if (failed) return;
+        try {
+          dispose();
+          this.ready = true;
+          for (const f of world.features) {
+            const p = f.properties;
+            if (p.rank > 5 || p.code === "AQ") continue;
+            const zh =
+              p.code?.length === 2
+                ? new Intl.DisplayNames(["zh"], { type: "region" }).of(
+                    p.code,
+                  ) || p.zh
+                : p.zh;
+            const en =
+              p.code?.length === 2
+                ? new Intl.DisplayNames(["en"], { type: "region" }).of(
+                    p.code,
+                  ) || p.name
+                : p.name;
+            const label = document.createElement("span");
+            label.className = "country-label";
+            label.textContent = this.lang === "zh" ? zh : en;
+            const marker = new maplibregl.Marker({ element: label })
+              .setLngLat([p.lon, p.lat])
+              .addTo(this.map!);
+            this.labels.push({ marker, zh, en, rank: p.rank });
+          }
+          this.labels.sort(
+            (a, b) => a.rank - b.rank || a.en.localeCompare(b.en, "en"),
+          );
+          void document.fonts.ready.then(() => this.updateLabels());
+          this.theme(this.dark);
+          this.updateLabels();
+          this.render();
+          if (this.area) this.focusArea(this.area);
+          else if (this.active?.location) this.focus(this.active);
+          document.getElementById("map-loading")!.hidden = true;
+          document.getElementById("map")!.dataset.ready = "true";
+          initialized = true;
+        } catch {
+          fail();
         }
-        this.labels.sort(
-          (a, b) => a.rank - b.rank || a.en.localeCompare(b.en, "en"),
-        );
-        void document.fonts.ready.then(() => this.updateLabels());
-        this.theme(this.dark);
-        this.updateLabels();
-        this.render();
-        if (this.area) this.focusArea(this.area);
-        else if (this.active?.location) this.focus(this.active);
-        document.getElementById("map-loading")!.hidden = true;
-        document.getElementById("map")!.dataset.ready = "true";
       });
       // DOM markers do not participate in MapLibre symbol collision placement.
       // Render follows camera/marker updates, including pan, zoom and resize.
@@ -250,12 +303,12 @@ export class PlotipMap {
         document.getElementById("map-coordinates")!.textContent =
           `${Math.abs(event.lngLat.lat).toFixed(1)}° ${event.lngLat.lat >= 0 ? "N" : "S"}   ${Math.abs(event.lngLat.lng).toFixed(1)}° ${event.lngLat.lng >= 0 ? "E" : "W"}`;
       });
-      this.map.on("error", () => this.failure());
+      this.map.on("error", fail);
       document.getElementById("zoom-in")!.onclick = () => this.map?.zoomIn();
       document.getElementById("zoom-out")!.onclick = () => this.map?.zoomOut();
       document.getElementById("reset-map")!.onclick = () => this.overview();
     } catch {
-      this.failure();
+      fail();
     }
   }
   setLevel(level: "country" | "region") {
