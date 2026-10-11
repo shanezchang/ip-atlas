@@ -1,23 +1,12 @@
 name: Checks
 on: [push, pull_request]
-permissions:
-  contents: read
+permissions: {}
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.11.26"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-      - run: uv sync --locked
-      - run: uv run ruff check .
-      - run: uv run pytest
-      - run: npm ci
-      - run: npm run build
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e -- --workers=2
+      - name: Intentional release-gate negative control
+        run: |
+          printf '%s\n' 'Intentional failure to verify release gates. Do not merge this temporary branch.'
+          exit 1
